@@ -21,19 +21,23 @@ __all__ = (
 from dataclasses import dataclass
 from typing import ClassVar, Dict, Iterable, Iterator, List, Mapping, Tuple
 
-NUM_UNICODE_CHARS = (1 << 16) + (1 << 20)
+# NUM_UNICODE_CHARS = (1 << 16) + (1 << 20)
+ASCII_ONLY      = True          # flip this to False if you ever need Unicode
+MAX_CODEPOINT   = 0x7F if ASCII_ONLY else 0x10FFFF
+ALPHABET_SIZE   = MAX_CODEPOINT + 1          # useful everywhere
+NUM_UNICODE_CHARS = ALPHABET_SIZE
 
-
-def negate(ord_ranges: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+def negate(ord_ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
     u = 0
     negated = []
-    for ord_range in ord_ranges:
-        if u < ord_range[0]:
-            negated.append((u, ord_range[0] - 1))
-        u = ord_range[1] + 1
-    if u < NUM_UNICODE_CHARS - 1:
-        negated.append((u, NUM_UNICODE_CHARS - 1))
+    for lo, hi in ord_ranges:
+        if u < lo:
+            negated.append((u, lo - 1))
+        u = hi + 1
+    if u <= MAX_CODEPOINT:
+        negated.append((u, MAX_CODEPOINT))
     return negated
+
 
 
 def collapse_ord_ranges(ord_ranges: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
@@ -156,6 +160,14 @@ class Charclass:
         # multiple characters (or possibly 0 characters)
         return f"[{self.escape()}]"
 
+    # ── internal ----------------------------------------------------
+    def _effective_ord_ranges(self) -> List[Tuple[int, int]]:
+        """
+        The intervals that are really in this class *right now*.
+        If the class is negated we complement the stored ranges on demand.
+        """
+        return self.ord_ranges if not self.negated else negate(list(self.ord_ranges))
+
     def escape(self, /) -> str:
         def escape_char(char: str, /) -> str:
             if char in Charclass.classSpecial:
@@ -214,26 +226,33 @@ class Charclass:
     def __invert__(self, /) -> Charclass:
         return self.negate()
 
-    def get_chars(self, /) -> Iterator[str]:
+    # Charclass
+    def get_chars(self, limit: int | None = None) -> Iterator[str]:
         """
-        Use this with caution, it can iterate over 1,000,000+ characters
+        Yield all characters in the class.
+        Use `limit` when you only want a prefix (e.g. for debugging).
         """
-        for first_u, last_u in self.ord_ranges:
+        seen = 0
+        for first_u, last_u in self._effective_ord_ranges():
             for u in range(first_u, last_u + 1):
+                if limit is not None and seen >= limit:
+                    return
                 yield chr(u)
+                seen += 1
 
-    def num_chars(self, /) -> int:
-        num = 0
-        for first_u, last_u in self.ord_ranges:
-            num += last_u + 1 - first_u
-        return NUM_UNICODE_CHARS - num if self.negated else num
 
-    def accepts(self, char: str, /) -> bool:
+    # Charclass
+    def num_chars(self) -> int:
+        num = sum(last_u - first_u + 1 for first_u, last_u in self.ord_ranges)
+        return num if not self.negated else NUM_UNICODE_CHARS - num
+
+    # Charclass
+    def accepts(self, char: str) -> bool:
         u = ord(char)
-        for first_u, last_u in self.ord_ranges:
-            if first_u <= u <= last_u:
-                return not self.negated
-        return self.negated
+        in_positive = any(first_u <= u <= last_u for first_u, last_u in self.ord_ranges)
+        return in_positive ^ self.negated          # XOR does the trick
+
+
 
     def reversed(self, /) -> Charclass:
         return self
