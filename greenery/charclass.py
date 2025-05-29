@@ -23,17 +23,33 @@ from typing import ClassVar, Dict, Iterable, Iterator, List, Mapping, Tuple
 
 # NUM_UNICODE_CHARS = (1 << 16) + (1 << 20)
 ASCII_ONLY      = True          # flip this to False if you ever need Unicode
-MAX_CODEPOINT   = 0x7F if ASCII_ONLY else 0x10FFFF
-ALPHABET_SIZE   = MAX_CODEPOINT + 1          # useful everywhere
+# MAX_CODEPOINT   = 0x7F if ASCII_ONLY else 0x10FFFF
+# ALPHABET_SIZE   = MAX_CODEPOINT + 1          # useful everywhere
 NUM_UNICODE_CHARS = ALPHABET_SIZE
 
+ASCII_PRINTABLE = True          # flip to False for full Unicode
+
+MIN_CODEPOINT   = 0x20                           # first printable char: “ ”
+MAX_CODEPOINT   = 0x7E if ASCII_PRINTABLE else 0x10FFFF
+ALPHABET_SIZE   = MAX_CODEPOINT - MIN_CODEPOINT + 1
+
 def negate(ord_ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    u = 0
-    negated = []
+    """
+    Return the set complement inside *our* alphabet (MIN_CODEPOINT…MAX_CODEPOINT).
+    `ord_ranges` must be sorted & non-overlapping.
+    """
+    u = MIN_CODEPOINT
+    negated: list[tuple[int, int]] = []
+
     for lo, hi in ord_ranges:
+        if hi < MIN_CODEPOINT or lo > MAX_CODEPOINT:
+            continue                    # range lies outside our universe
+        lo = max(lo, MIN_CODEPOINT)     # clamp to universe
+        hi = min(hi, MAX_CODEPOINT)
         if u < lo:
             negated.append((u, lo - 1))
         u = hi + 1
+
     if u <= MAX_CODEPOINT:
         negated.append((u, MAX_CODEPOINT))
     return negated
@@ -83,9 +99,15 @@ class Charclass:
                 raise ValueError(f"Bad range: {r!r}")
             for char in r:
                 if not isinstance(char, str):
-                    raise TypeError(f"Can't put {char!r} in a `Charclass`", char)
+                    raise TypeError(f"Can't put {char!r} in a `Charclass`")
                 if len(char) != 1:
-                    raise ValueError("`Charclass` can only contain single chars", char)
+                    raise ValueError("`Charclass` can only contain single chars")
+
+                # ── NEW:  ensure the char lies inside the current universe ──
+                if ASCII_PRINTABLE and not (MIN_CODEPOINT <= ord(char) <= MAX_CODEPOINT):
+                    raise ValueError(
+                        f"{char!r} (U+{ord(char):04X}) is outside the printable ASCII alphabet"
+                    )
 
         # Rebalance ranges!
         ord_ranges = [(ord(first), ord(last)) for first, last in ranges]
@@ -243,14 +265,20 @@ class Charclass:
 
     # Charclass
     def num_chars(self) -> int:
-        num = sum(last_u - first_u + 1 for first_u, last_u in self.ord_ranges)
-        return num if not self.negated else NUM_UNICODE_CHARS - num
+        num = sum(hi - lo + 1 for lo, hi in self.ord_ranges)
+        return num if not self.negated else ALPHABET_SIZE - num
 
     # Charclass
     def accepts(self, char: str) -> bool:
+        if ASCII_PRINTABLE and not (MIN_CODEPOINT <= ord(char) <= MAX_CODEPOINT):
+            raise ValueError(
+                f"{char!r} (U+{ord(char):04X}) is outside the printable ASCII alphabet"
+            )
+
         u = ord(char)
-        in_positive = any(first_u <= u <= last_u for first_u, last_u in self.ord_ranges)
-        return in_positive ^ self.negated          # XOR does the trick
+        in_positive = any(lo <= u <= hi for lo, hi in self.ord_ranges)
+        return in_positive ^ self.negated  # XOR does the trick
+
 
 
 
