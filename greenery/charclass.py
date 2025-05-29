@@ -21,47 +21,49 @@ __all__ = (
 from dataclasses import dataclass
 from typing import ClassVar, Dict, Iterable, Iterator, List, Mapping, Tuple
 
-# NUM_UNICODE_CHARS = (1 << 16) + (1 << 20)
-ASCII_ONLY      = True          # flip this to False if you ever need Unicode
-# MAX_CODEPOINT   = 0x7F if ASCII_ONLY else 0x10FFFF
-# ALPHABET_SIZE   = MAX_CODEPOINT + 1          # useful everywhere
+ALLOWED_INTERVALS = [(0x00, 0x7E)]  # full ASCII 0–126 inclusive
+ALLOWED_CHARS = {cp for lo, hi in ALLOWED_INTERVALS for cp in range(lo, hi + 1)}
+ALPHABET_SIZE = len(ALLOWED_CHARS)
+ASCII_MIN = 0x00
+ASCII_MAX = 0x7E
 
-ASCII_PRINTABLE = True # flip to False for full Unicode
 
-MIN_CODEPOINT   = 0x09
-MAX_CODEPOINT   = 0x7E if ASCII_PRINTABLE else 0x10FFFF
-ALPHABET_SIZE   = MAX_CODEPOINT - MIN_CODEPOINT + 1
-NUM_UNICODE_CHARS = ALPHABET_SIZE
+@staticmethod  # no closure look-ups
+def _in_alphabet(cp: int) -> bool:
+    return 0 <= cp <= 0x7E  # just two integer comparisons
+
 
 def negate(ord_ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
     """
-    Complement of *ord_ranges* **within ALLOWED_INTERVALS**.
+    Complement of *ord_ranges* within [ASCII_MIN..ASCII_MAX].
     ord_ranges must be sorted & disjoint.
     """
     out: list[tuple[int, int]] = []
-    rng_iter = iter(ord_ranges)
-    try:
-        lo, hi = next(rng_iter)
-    except StopIteration:
-        lo = hi = None
+    cursor = ASCII_MIN
 
-    for lo_a, hi_a in ALLOWED_INTERVALS:
-        cursor = lo_a
-        # consume every input range that intersects this allowed interval
-        while lo is not None and lo <= hi_a:
-            if hi < lo_a:                         # left of allowed block
-                lo, hi = next(rng_iter, (None, None))
-                continue
-            if cursor < lo:                       # gap before this range
-                out.append((cursor, lo - 1))
-            cursor = hi + 1                       # skip the taken area
-            lo, hi = next(rng_iter, (None, None))
-        if cursor <= hi_a:                        # tail of allowed block
-            out.append((cursor, hi_a))
+    for lo, hi in ord_ranges:
+        # skip ranges that lie completely outside
+        if hi < ASCII_MIN or lo > ASCII_MAX:
+            continue
+
+        # clamp to our universe
+        lo = max(lo, ASCII_MIN)
+        hi = min(hi, ASCII_MAX)
+
+        # gap before this range?
+        if lo > cursor:
+            out.append((cursor, lo - 1))
+
+        # advance cursor past this range
+        cursor = hi + 1
+        if cursor > ASCII_MAX:
+            break
+
+    # tail gap?
+    if cursor <= ASCII_MAX:
+        out.append((cursor, ASCII_MAX))
 
     return out
-
-
 
 
 def collapse_ord_ranges(ord_ranges: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
@@ -114,7 +116,7 @@ class Charclass:
                 # Ensure the char lies inside the allowed set.
                 if not _in_alphabet(ord(char)):
                     raise ValueError(
-                        f"{char!r} (U+{ord(char):04X}) is not printable ASCII."
+                        f"{char!r} (U+{ord(char):04X}) is not in the supported ASCII range (0–126)."
                     )
 
         # Rebalance ranges!
@@ -270,7 +272,6 @@ class Charclass:
                 yield chr(u)
                 seen += 1
 
-
     # Charclass
     def num_chars(self) -> int:
         num = sum(hi - lo + 1 for lo, hi in self.ord_ranges)
@@ -281,7 +282,7 @@ class Charclass:
         # Check that char is in
         if not _in_alphabet(ord(char)):
             raise ValueError(
-                f"{char!r} (U+{ord(char):04X}) is not printable ASCII."
+                f"{char!r} (U+{ord(char):04X}) is not in the supported ASCII range (0–126)."
             )
 
         u = ord(char)
