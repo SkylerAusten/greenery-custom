@@ -21,13 +21,17 @@ __all__ = (
 from dataclasses import dataclass
 from typing import ClassVar, Dict, Iterable, Iterator, List, Mapping, Tuple
 
-ALLOWED_INTERVALS = [(0x09, 0x0D), (0x20, 0x7E)]         # inclusive
-ALLOWED_CHARS     = {(cp) for lo, hi in ALLOWED_INTERVALS
-                            for cp in range(lo, hi + 1)}
-ALPHABET_SIZE     = len(ALLOWED_CHARS)                   # 100
+# NUM_UNICODE_CHARS = (1 << 16) + (1 << 20)
+ASCII_ONLY      = True          # flip this to False if you ever need Unicode
+# MAX_CODEPOINT   = 0x7F if ASCII_ONLY else 0x10FFFF
+# ALPHABET_SIZE   = MAX_CODEPOINT + 1          # useful everywhere
 
-def _in_alphabet(cp: int) -> bool:
-    return cp in ALLOWED_CHARS
+ASCII_PRINTABLE = True # flip to False for full Unicode
+
+MIN_CODEPOINT   = 0x09
+MAX_CODEPOINT   = 0x7E if ASCII_PRINTABLE else 0x10FFFF
+ALPHABET_SIZE   = MAX_CODEPOINT - MIN_CODEPOINT + 1
+NUM_UNICODE_CHARS = ALPHABET_SIZE
 
 def negate(ord_ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
     """
