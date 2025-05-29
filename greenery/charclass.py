@@ -21,38 +21,42 @@ __all__ = (
 from dataclasses import dataclass
 from typing import ClassVar, Dict, Iterable, Iterator, List, Mapping, Tuple
 
-# NUM_UNICODE_CHARS = (1 << 16) + (1 << 20)
-ASCII_ONLY      = True          # flip this to False if you ever need Unicode
-# MAX_CODEPOINT   = 0x7F if ASCII_ONLY else 0x10FFFF
-# ALPHABET_SIZE   = MAX_CODEPOINT + 1          # useful everywhere
+ALLOWED_INTERVALS = [(0x09, 0x0D), (0x20, 0x7E)]         # inclusive
+ALLOWED_CHARS     = {(cp) for lo, hi in ALLOWED_INTERVALS
+                            for cp in range(lo, hi + 1)}
+ALPHABET_SIZE     = len(ALLOWED_CHARS)                   # 100
 
-ASCII_PRINTABLE = True # flip to False for full Unicode
-
-MIN_CODEPOINT   = 0x09
-MAX_CODEPOINT   = 0x7E if ASCII_PRINTABLE else 0x10FFFF
-ALPHABET_SIZE   = MAX_CODEPOINT - MIN_CODEPOINT + 1
-NUM_UNICODE_CHARS = ALPHABET_SIZE
+def _in_alphabet(cp: int) -> bool:
+    return cp in ALLOWED_CHARS
 
 def negate(ord_ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
     """
-    Return the set complement inside *our* alphabet (MIN_CODEPOINT…MAX_CODEPOINT).
-    `ord_ranges` must be sorted & non-overlapping.
+    Complement of *ord_ranges* **within ALLOWED_INTERVALS**.
+    ord_ranges must be sorted & disjoint.
     """
-    u = MIN_CODEPOINT
-    negated: list[tuple[int, int]] = []
+    out: list[tuple[int, int]] = []
+    rng_iter = iter(ord_ranges)
+    try:
+        lo, hi = next(rng_iter)
+    except StopIteration:
+        lo = hi = None
 
-    for lo, hi in ord_ranges:
-        if hi < MIN_CODEPOINT or lo > MAX_CODEPOINT:
-            continue                    # range lies outside our universe
-        lo = max(lo, MIN_CODEPOINT)     # clamp to universe
-        hi = min(hi, MAX_CODEPOINT)
-        if u < lo:
-            negated.append((u, lo - 1))
-        u = hi + 1
+    for lo_a, hi_a in ALLOWED_INTERVALS:
+        cursor = lo_a
+        # consume every input range that intersects this allowed interval
+        while lo is not None and lo <= hi_a:
+            if hi < lo_a:                         # left of allowed block
+                lo, hi = next(rng_iter, (None, None))
+                continue
+            if cursor < lo:                       # gap before this range
+                out.append((cursor, lo - 1))
+            cursor = hi + 1                       # skip the taken area
+            lo, hi = next(rng_iter, (None, None))
+        if cursor <= hi_a:                        # tail of allowed block
+            out.append((cursor, hi_a))
 
-    if u <= MAX_CODEPOINT:
-        negated.append((u, MAX_CODEPOINT))
-    return negated
+    return out
+
 
 
 
@@ -103,10 +107,10 @@ class Charclass:
                 if len(char) != 1:
                     raise ValueError("`Charclass` can only contain single chars")
 
-                # ── NEW:  ensure the char lies inside the current universe ──
-                if ASCII_PRINTABLE and not (MIN_CODEPOINT <= ord(char) <= MAX_CODEPOINT):
+                # Ensure the char lies inside the allowed set.
+                if not _in_alphabet(ord(char)):
                     raise ValueError(
-                        f"{char!r} (U+{ord(char):04X}) is outside the printable ASCII alphabet"
+                        f"{char!r} (U+{ord(char):04X}) is not printable ASCII."
                     )
 
         # Rebalance ranges!
@@ -270,17 +274,15 @@ class Charclass:
 
     # Charclass
     def accepts(self, char: str) -> bool:
-        if ASCII_PRINTABLE and not (MIN_CODEPOINT <= ord(char) <= MAX_CODEPOINT):
+        # Check that char is in
+        if not _in_alphabet(ord(char)):
             raise ValueError(
-                f"{char!r} (U+{ord(char):04X}) is outside the printable ASCII alphabet"
+                f"{char!r} (U+{ord(char):04X}) is not printable ASCII."
             )
 
         u = ord(char)
         in_positive = any(lo <= u <= hi for lo, hi in self.ord_ranges)
         return in_positive ^ self.negated  # XOR does the trick
-
-
-
 
     def reversed(self, /) -> Charclass:
         return self
