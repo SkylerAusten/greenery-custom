@@ -25,13 +25,13 @@ from typing import ClassVar, Dict, Iterable, Iterator, List, Mapping, Tuple
 ASCII_ONLY      = True          # flip this to False if you ever need Unicode
 # MAX_CODEPOINT   = 0x7F if ASCII_ONLY else 0x10FFFF
 # ALPHABET_SIZE   = MAX_CODEPOINT + 1          # useful everywhere
-NUM_UNICODE_CHARS = ALPHABET_SIZE
 
-ASCII_PRINTABLE = True          # flip to False for full Unicode
+ASCII_PRINTABLE = True # flip to False for full Unicode
 
-MIN_CODEPOINT   = 0x20                           # first printable char: “ ”
+MIN_CODEPOINT   = 0x09
 MAX_CODEPOINT   = 0x7E if ASCII_PRINTABLE else 0x10FFFF
 ALPHABET_SIZE   = MAX_CODEPOINT - MIN_CODEPOINT + 1
+NUM_UNICODE_CHARS = ALPHABET_SIZE
 
 def negate(ord_ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
     """
